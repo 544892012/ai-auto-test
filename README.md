@@ -183,6 +183,7 @@ aitest gen-all --exit-zero
 - `gen-all` 会对 **每个** `.md` 各调用 **一次** 大模型接口：用例多时会显著增加 **耗时与费用**，建议在非高峰或带 **限速/重试** 的流水线中执行。  
 - **默认容错**：任一条失败会 **打印错误并继续** 处理后续用例，最后汇总 `ok/failed` 并以 **退出码 1** 表示存在失败；若希望遇错即停，请加 **`--fail-fast`**。  
 - LLM HTTP 层对超时、连接错误、429/5xx 等会做 **有限次重试**（见 `aitest/llm/client.py`）。  
+- 若曾出现 `Generated code contains forbidden pattern: 'compile('`：已修复为 **仅禁止内置 `compile()`**，`re.compile()` 合法。  
 - 推荐流程：**本地或独立 Job 跑 `gen-all` → 人审 diff → 合入 → CI 只 `aitest run`**，避免在主干每次提交都自动 `gen-all` 刷脚本。
 
 **与 CI 的分工建议**：

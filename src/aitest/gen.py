@@ -8,9 +8,6 @@ from aitest.case_parser import parse_case_file
 from aitest.llm.client import chat_completion
 from aitest.llm.prompts import build_gen_prompt
 
-_FORBIDDEN_CALLS = ("eval(", "exec(", "compile(", "os.system")
-
-
 def _forbidden_import_roots() -> frozenset[str]:
     return frozenset({"subprocess", "socket", "urllib", "requests", "httpx", "ftplib"})
 
@@ -21,6 +18,26 @@ def _strip_fences(text: str) -> str:
         t = re.sub(r"^```[a-zA-Z0-9]*\s*", "", t)
         t = re.sub(r"\s*```$", "", t)
     return t.strip()
+
+
+def _validate_dangerous_calls(tree: ast.AST) -> None:
+    """禁止 eval/exec/内置 compile、os.system；允许 re.compile 等 Attribute 调用。"""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if isinstance(f, ast.Name) and f.id in ("eval", "exec", "compile"):
+            raise ValueError(
+                f"Forbidden call to builtin {f.id}(); "
+                "use re.compile(...) instead of compile(...) if needed."
+            )
+        if (
+            isinstance(f, ast.Attribute)
+            and f.attr == "system"
+            and isinstance(f.value, ast.Name)
+            and f.value.id == "os"
+        ):
+            raise ValueError("Forbidden: os.system")
 
 
 def _validate_generated_code(src: str) -> None:
@@ -37,9 +54,7 @@ def _validate_generated_code(src: str) -> None:
             base = mod.split(".")[0] if mod else ""
             if base in roots:
                 raise ValueError(f"Forbidden import from: {mod}")
-    for bad in _FORBIDDEN_CALLS:
-        if bad in src:
-            raise ValueError(f"Generated code contains forbidden pattern: {bad!r}")
+    _validate_dangerous_calls(tree)
 
 
 def run_gen(case_path: Path, out_dir: Path | None = None) -> Path:
