@@ -1,0 +1,14 @@
+llm:
+  provider: openai_compatible
+  base_url: ${LLM_BASE_URL}
+  model: ${LLM_MODEL}
+playwright:
+  browser: chromium
+  mobile_device: "iPhone 13"
+pytest:
+  args: ["-v", "--tb=short"]
+paths:
+  cases: cases
+  generated: tests/generated
+auth:
+  mode: env_credentials
