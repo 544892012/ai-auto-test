@@ -144,7 +144,7 @@ LLM_MODEL=deepseek-chat
 
 ## 常用工作流
 
-### 1. 生成脚本
+### 1. 生成脚本（单个用例）
 
 ```bash
 aitest gen cases/example_baidu.md
@@ -155,6 +155,35 @@ aitest gen cases/example_baidu.md --out tests/generated
 成功时打印：`written: tests/generated/test_<id>.py`
 
 生成代码会经过 **AST 解析**与**危险 import 拦截**（如 `subprocess`、`httpx` 等），不通过则不会落盘。
+
+### 1b. 批量生成：为 **所有** `cases/*.md` 生成 `tests/generated/test_<id>.py`
+
+适用于：新增/修改了多条 Markdown 用例，希望一次性产出（或刷新）全部可执行脚本，再进入 Code Review 与 CI。
+
+```bash
+# 默认扫描仓库根目录下 cases/ 内全部 .md，按文件顺序逐个调用 LLM
+aitest gen-all
+
+# 指定用例目录（例如多套件分目录时）
+aitest gen-all --cases /path/to/cases
+
+# 指定生成输出目录（默认仍为 tests/generated）
+aitest gen-all --out tests/generated
+```
+
+**注意（生产/成本）**：
+
+- `gen-all` 会对 **每个** `.md` 各调用 **一次** 大模型接口：用例多时会显著增加 **耗时与费用**，建议在非高峰或带 **限速/重试** 的流水线中执行。  
+- 任一条用例生成失败（模型返回非法代码、校验不通过等）会 **中断** 后续文件；可先修该 md 或暂时移出 `cases/` 再跑。  
+- 推荐流程：**本地或独立 Job 跑 `gen-all` → 人审 diff → 合入 → CI 只 `aitest run`**，避免在主干每次提交都自动 `gen-all` 刷脚本。
+
+**与 CI 的分工建议**：
+
+| 阶段 | 命令 | 说明 |
+|------|------|------|
+| 编写用例 | 编辑 `cases/*.md` | 人写或产品/QA 写 |
+| 生成脚本 | `aitest gen` / `aitest gen-all` | 需要 LLM；产出 `tests/generated/*.py` |
+| 回归执行 | `aitest run` / `pytest` | **不调用** LLM，可高频跑 |
 
 ### 2. 执行测试
 
