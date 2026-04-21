@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import httpx
+
+
+def _retryable_http_error(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.TimeoutException):
+        return True
+    if isinstance(exc, httpx.RequestError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code in {408, 409, 425, 429, 500, 502, 503, 504}
+    return False
 
 
 def chat_completion(
@@ -14,6 +26,7 @@ def chat_completion(
     api_key: str | None = None,
     temperature: float = 0.2,
     timeout: float = 120.0,
+    max_retries: int = 3,
 ) -> str:
     """Call OpenAI-compatible POST {base}/v1/chat/completions."""
     base = (
@@ -46,15 +59,27 @@ def chat_completion(
         "messages": messages,
         "temperature": temperature,
     }
-    with httpx.Client(timeout=timeout) as client:
-        resp = client.post(url, json=payload, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
-    choices = data.get("choices") or []
-    if not choices:
-        raise RuntimeError(f"LLM response missing choices: {data!r:.500}")
-    msg = choices[0].get("message") or {}
-    content = msg.get("content")
-    if not isinstance(content, str) or not content.strip():
-        raise RuntimeError(f"LLM empty content: {data!r:.500}")
-    return content.strip()
+    last_exc: BaseException | None = None
+    attempts = max(1, max_retries)
+    for attempt in range(attempts):
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                resp = client.post(url, json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+            choices = data.get("choices") or []
+            if not choices:
+                raise RuntimeError(f"LLM response missing choices: {data!r:.500}")
+            msg = choices[0].get("message") or {}
+            content = msg.get("content")
+            if not isinstance(content, str) or not content.strip():
+                raise RuntimeError(f"LLM empty content: {data!r:.500}")
+            return content.strip()
+        except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as exc:
+            last_exc = exc
+            if attempt + 1 >= attempts or not _retryable_http_error(exc):
+                raise
+            delay = 0.5 * (2**attempt)
+            time.sleep(delay)
+    assert last_exc is not None
+    raise last_exc

@@ -1,6 +1,6 @@
 # ai-auto-test
 
-将**半结构化中文 Markdown** 用例交给大模型，生成 **Playwright + pytest** 可执行脚本；支持本地 CLI `**gen`（生成）** / `**run`（执行）** / `**heal`（失败修复建议）**。设计规格见 `docs/superpowers/specs/2026-04-21-ai-ui-auto-test-design.md`，实现计划见 `docs/superpowers/plans/2026-04-21-ai-ui-auto-test.md`。
+将**半结构化中文 Markdown** 用例交给大模型，生成 **Playwright + pytest** 可执行脚本；支持本地 CLI **`gen`（生成）** / **`run`（执行）** / **`heal`（失败修复建议）**。设计规格见 `docs/superpowers/specs/2026-04-21-ai-ui-auto-test-design.md`，实现计划见 `docs/superpowers/plans/2026-04-21-ai-ui-auto-test.md`。
 
 ---
 
@@ -11,7 +11,7 @@
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `aitest init`           | 创建 `cases/`、`tests/generated/`、`reports/`；若不存在则写入 `.env.example` 与最小 `aitest.yaml`                                |
 | `aitest gen <用例.md>`    | 解析用例 → 调用 LLM → 语法与安全校验 → 写入 `tests/generated/test_<id>.py`                                                       |
-| `aitest gen-all`        | 对 `cases/*.md` **逐个**执行 `gen`（仅在你需要批量生成脚本时使用）                                                                     |
+| `aitest gen-all`        | 对 `cases/*.md` **逐个**执行 `gen`；默认失败不中断，可用 `--fail-fast` 遇错即停                                                                |
 | `aitest run …`          | 透传参数执行 `pytest`；无额外参数时默认跑整个 `tests/`                                                                              |
 | `aitest heal <case_id>` | 读取 `reports/last_failure.txt` 与 `tests/generated/test_<id>.py`，调用 LLM 输出 `reports/heal-<id>-<时间>.diff`（需人工审阅后再应用） |
 
@@ -20,9 +20,9 @@
 
 ### `cases/*.md` 和 `tests/generated/*.py` 是什么关系？
 
-- `**cases/`**：给人看的用例说明（Markdown），**不会**被 pytest 直接执行。  
-- `**tests/generated/`**：只有在你运行 `**aitest gen …**`（或 `**aitest gen-all**`）之后，才会根据 front matter 里的 `**id**` 生成对应的 `**test_<id>.py**`。  
-- `**aitest run**`：等价于跑 `**pytest**`，**只执行已有的 `.py`**，**不会**根据 Markdown 自动生成新脚本。
+- **`cases/`**：给人看的用例说明（Markdown），**不会**被 pytest 直接执行。  
+- **`tests/generated/`**：只有在你运行 **`aitest gen …`**（或 **`aitest gen-all`**）之后，才会根据 front matter 里的 **`id`** 生成对应的 **`test_<id>.py`**。  
+- **`aitest run`**：等价于跑 **`pytest`**，**只执行已有的 `.py`**，**不会**根据 Markdown 自动生成新脚本。
 
 因此：新建了 `cases/foo.md` 但目录里没有 `tests/generated/test_foo.py`，是因为**还没对该文件执行 `gen`**。批量生成示例：
 
@@ -169,12 +169,16 @@ aitest gen-all --cases /path/to/cases
 
 # 指定生成输出目录（默认仍为 tests/generated）
 aitest gen-all --out tests/generated
+
+# 遇第一条失败立即停止（默认会继续跑完并汇总）
+aitest gen-all --fail-fast
 ```
 
 **注意（生产/成本）**：
 
 - `gen-all` 会对 **每个** `.md` 各调用 **一次** 大模型接口：用例多时会显著增加 **耗时与费用**，建议在非高峰或带 **限速/重试** 的流水线中执行。  
-- 任一条用例生成失败（模型返回非法代码、校验不通过等）会 **中断** 后续文件；可先修该 md 或暂时移出 `cases/` 再跑。  
+- **默认容错**：任一条失败会 **打印错误并继续** 处理后续用例，最后汇总 `ok/failed` 并以 **退出码 1** 表示存在失败；若希望遇错即停，请加 **`--fail-fast`**。  
+- LLM HTTP 层对超时、连接错误、429/5xx 等会做 **有限次重试**（见 `aitest/llm/client.py`）。  
 - 推荐流程：**本地或独立 Job 跑 `gen-all` → 人审 diff → 合入 → CI 只 `aitest run`**，避免在主干每次提交都自动 `gen-all` 刷脚本。
 
 **与 CI 的分工建议**：

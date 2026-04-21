@@ -47,7 +47,11 @@ def gen(
     from aitest.gen import run_gen
 
     out_dir = out.resolve() if out else None
-    written = run_gen(case.resolve(), out_dir=out_dir)
+    try:
+        written = run_gen(case.resolve(), out_dir=out_dir)
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(f"gen failed: {type(exc).__name__}: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
     typer.echo(f"written: {written}")
 
 
@@ -69,6 +73,11 @@ def gen_all(
         path_type=Path,
         help="生成目录，默认 tests/generated",
     ),
+    fail_fast: bool = typer.Option(
+        False,
+        "--fail-fast",
+        help="任一条生成失败立即退出（默认：记录错误并继续下一条）",
+    ),
 ) -> None:
     """对 cases 下所有 .md 逐个执行 gen（每次都会调用 LLM，注意费用与耗时）。"""
     load_dotenv()
@@ -81,10 +90,28 @@ def gen_all(
     if not files:
         typer.echo(f"no .md under {cdir}", err=True)
         raise typer.Exit(code=1)
+    ok: list[Path] = []
+    failed: list[tuple[Path, str]] = []
     for f in files:
         typer.echo(f"generating from {f} ...")
-        written = run_gen(f, out_dir=out_dir)
+        try:
+            written = run_gen(f, out_dir=out_dir)
+        except Exception as exc:  # noqa: BLE001 — 批量任务需汇总
+            msg = f"{type(exc).__name__}: {exc}"
+            typer.secho(f"  FAILED: {msg}", fg=typer.colors.RED, err=True)
+            failed.append((f, msg))
+            if fail_fast:
+                raise typer.Exit(code=1) from exc
+            continue
         typer.echo(f"  written: {written}")
+        ok.append(f)
+
+    typer.echo("")
+    typer.echo(f"summary: ok={len(ok)} failed={len(failed)} total={len(files)}")
+    for path, msg in failed:
+        typer.secho(f"  - {path}: {msg}", fg=typer.colors.RED, err=True)
+    if failed:
+        raise typer.Exit(code=1)
 
 
 @app.command(
@@ -112,11 +139,18 @@ def heal(
     load_dotenv()
     from aitest.heal import run_heal
 
-    out = run_heal(
-        case_id=case_id,
-        generated_dir=generated.resolve() if generated else None,
-        reports_dir=reports.resolve() if reports else None,
-    )
+    try:
+        out = run_heal(
+            case_id=case_id,
+            generated_dir=generated.resolve() if generated else None,
+            reports_dir=reports.resolve() if reports else None,
+        )
+    except FileNotFoundError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2) from exc
+    except Exception as exc:  # noqa: BLE001
+        typer.secho(f"heal failed: {type(exc).__name__}: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
     typer.echo(f"diff written: {out}")
 
 
