@@ -7,11 +7,25 @@ from pathlib import Path
 import typer
 from dotenv import load_dotenv
 
-app = typer.Typer(no_args_is_help=True, add_completion=False)
+app = typer.Typer(add_completion=False)
+
+_SUBCOMMANDS = frozenset({"init", "gen", "gen-all", "run", "heal"})
 
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+def main() -> None:
+    """入口：无子命令或首参为 pytest 选项/路径时，自动插入 `run`（`aitest -q` 等价 `aitest run -q`）。"""
+    argv = sys.argv[1:]
+    if not argv:
+        sys.argv = [sys.argv[0], "run"]
+    elif argv[0] == "help":
+        sys.argv = [sys.argv[0], "--help"]
+    elif argv[0] not in _SUBCOMMANDS and argv[0] not in ("--help", "-h", "--version"):
+        sys.argv = [sys.argv[0], "run", *argv]
+    app()
 
 
 @app.command("init")
@@ -78,6 +92,11 @@ def gen_all(
         "--fail-fast",
         help="任一条生成失败立即退出（默认：记录错误并继续下一条）",
     ),
+    exit_zero: bool = typer.Option(
+        False,
+        "--exit-zero",
+        help="即使有失败也使用进程退出码 0（仍会打印失败列表；适合不想打断脚本的场景）",
+    ),
 ) -> None:
     """对 cases 下所有 .md 逐个执行 gen（每次都会调用 LLM，注意费用与耗时）。"""
     load_dotenv()
@@ -110,7 +129,7 @@ def gen_all(
     typer.echo(f"summary: ok={len(ok)} failed={len(failed)} total={len(files)}")
     for path, msg in failed:
         typer.secho(f"  - {path}: {msg}", fg=typer.colors.RED, err=True)
-    if failed:
+    if failed and not exit_zero:
         raise typer.Exit(code=1)
 
 
@@ -152,10 +171,6 @@ def heal(
         typer.secho(f"heal failed: {type(exc).__name__}: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"diff written: {out}")
-
-
-def main() -> None:
-    app()
 
 
 if __name__ == "__main__":

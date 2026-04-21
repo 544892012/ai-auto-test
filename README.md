@@ -13,6 +13,7 @@
 | `aitest gen <用例.md>`    | 解析用例 → 调用 LLM → 语法与安全校验 → 写入 `tests/generated/test_<id>.py`                                                       |
 | `aitest gen-all`        | 对 `cases/*.md` **逐个**执行 `gen`；默认失败不中断，可用 `--fail-fast` 遇错即停                                                                |
 | `aitest run …`          | 透传参数执行 `pytest`；无额外参数时默认跑整个 `tests/`                                                                              |
+| （不写子命令）                 | 等价于 `aitest run`；也支持 `aitest -q` 等同于 `aitest run -q`                                                                     |
 | `aitest heal <case_id>` | 读取 `reports/last_failure.txt` 与 `tests/generated/test_<id>.py`，调用 LLM 输出 `reports/heal-<id>-<时间>.diff`（需人工审阅后再应用） |
 
 
@@ -172,6 +173,9 @@ aitest gen-all --out tests/generated
 
 # 遇第一条失败立即停止（默认会继续跑完并汇总）
 aitest gen-all --fail-fast
+
+# 有失败仍返回退出码 0（便于外层 shell 不中断）
+aitest gen-all --exit-zero
 ```
 
 **注意（生产/成本）**：

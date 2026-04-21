@@ -19,7 +19,7 @@ dependencies = [
 dev = ["pytest>=8", "pytest-playwright>=0.5"]
 
 [project.scripts]
-aitest = "aitest.cli:app"
+aitest = "aitest.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
